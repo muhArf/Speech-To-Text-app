@@ -62,17 +62,21 @@ if video_file is not None:
     # ===========================
     # 🔊 Langkah 3 — Ekstrak Audio dari Video
     # ===========================
-    st.write("🎧 Mengekstrak audio dari video...")
-    audio_path = video_path.replace(".mp4", ".wav")
+    import ffmpeg
 
-    command = [
-        "ffmpeg", "-y",
-        "-i", video_path,
-        "-vn",
-        "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
-        audio_path
-    ]
-    subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    st.write("🎧 Mengekstrak audio dari video...")
+    try:
+        (
+            ffmpeg
+            .input(video_path)
+            .output(audio_path, format="wav", acodec="pcm_s16le", ac=1, ar="16000")
+            .overwrite_output()
+            .run(quiet=True)
+        )
+        st.success("✅ Audio berhasil diekstrak.")
+    except Exception as e:
+        st.error(f"❌ Gagal mengekstrak audio: {e}")
+        st.stop()
 
     # ===========================
     # 🧠 Langkah 4 — Transkripsi dengan WhisperX

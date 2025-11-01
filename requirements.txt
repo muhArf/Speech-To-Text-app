@@ -1,5 +1,4 @@
 streamlit
-git+https://github.com/m-bain/whisperx.git
-sentence-transformers
 torch
-torchaudio
+git+https://github.com/m-bain/whisperx.git
+ffmpeg-python

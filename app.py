@@ -52,13 +52,12 @@ if video_file is not None:
     audio_path = video_path.replace(".mp4", ".wav")
 
     command = [
-        "ffmpeg", "-y",
-        "-i", video_path,
-        "-vn",  # tanpa video
-        "-acodec", "pcm_s16le",  # format wav
-        "-ar", "16000", "-ac", "1",
-        audio_path
-    ]
+    "ffmpeg", "-y",
+    "-i", video_path,
+    "-vn",
+    "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
+    audio_path
+]
     subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     # ===========================

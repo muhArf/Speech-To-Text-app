@@ -2,7 +2,6 @@ import streamlit as st
 import speech_recognition as sr
 import difflib
 import random
-from pydub import AudioSegment
 import tempfile
 
 # ---------------------------------------------------------
@@ -66,37 +65,40 @@ st.markdown(f"<div class='card'><b>📝 Soal:</b><br>{question}</div>", unsafe_a
 # ---------------------------------------------------------
 # 🎧 Upload Audio
 # ---------------------------------------------------------
-st.markdown("### 📤 Upload jawaban audio Anda (.wav / .mp3)")
+st.markdown("### 📤 Upload jawaban audio Anda (format **.wav** saja)")
 
-audio_file = st.file_uploader("Pilih file audio", type=["wav", "mp3", "m4a"])
+audio_file = st.file_uploader("Pilih file audio", type=["wav"])
 
 if audio_file is not None:
     st.audio(audio_file)
 
-    # Simpan file sementara & konversi ke WAV (agar compatible)
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_wav:
-        audio = AudioSegment.from_file(audio_file)
-        audio.export(temp_wav.name, format="wav")
+    recognizer = sr.Recognizer()
 
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(temp_wav.name) as source:
-            audio_data = recognizer.record(source)
-            with st.spinner("🎧 Sedang mengonversi audio ke teks..."):
-                try:
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_wav:
+            temp_wav.write(audio_file.read())
+            temp_wav.flush()
+
+            with sr.AudioFile(temp_wav.name) as source:
+                audio_data = recognizer.record(source)
+                with st.spinner("🎧 Sedang mengonversi audio ke teks..."):
                     text_result = recognizer.recognize_google(audio_data)
                     st.success("✅ Transkripsi Berhasil!")
                     st.markdown(f"<div class='card'><b>🗣️ Hasil Transkripsi:</b><br>{text_result}</div>", unsafe_allow_html=True)
-                except sr.UnknownValueError:
-                    st.error("❌ Audio tidak dapat dikenali. Silakan coba lagi.")
-                    text_result = ""
-                except sr.RequestError:
-                    st.error("⚠️ Gagal terhubung ke layanan Speech Recognition.")
-                    text_result = ""
+
+    except sr.UnknownValueError:
+        st.error("❌ Audio tidak dapat dikenali. Silakan coba lagi.")
+        text_result = ""
+    except sr.RequestError:
+        st.error("⚠️ Gagal terhubung ke layanan Speech Recognition.")
+        text_result = ""
+    except Exception as e:
+        st.error("⚠️ Pastikan file audio dalam format .wav (PCM).")
 
     # ---------------------------------------------------------
     # 💯 Penilaian Jawaban
     # ---------------------------------------------------------
-    if text_result:
+    if 'text_result' in locals() and text_result:
         st.markdown("### 💯 Hasil Penilaian")
 
         reference_answer = "My favorite hobby is playing football because it keeps me active and helps me relax."
@@ -128,7 +130,7 @@ st.markdown("""
 ---
 **Petunjuk:**
 1️⃣ Baca soal di atas dengan suara jelas.  
-2️⃣ Rekam jawaban Anda dan upload file audio-nya.  
+2️⃣ Rekam jawaban Anda dan upload file audio **berformat .WAV (PCM 16-bit)**.  
 3️⃣ Sistem akan otomatis menilai hasil transkripsi Anda.  
 
 *Dibangun dengan Python, Streamlit, dan SpeechRecognition.*

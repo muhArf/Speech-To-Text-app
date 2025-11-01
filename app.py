@@ -2,6 +2,8 @@ import streamlit as st
 import speech_recognition as sr
 import difflib
 import random
+from pydub import AudioSegment
+import tempfile
 
 # ---------------------------------------------------------
 # 🎓 Konfigurasi Tampilan
@@ -66,25 +68,30 @@ st.markdown(f"<div class='card'><b>📝 Soal:</b><br>{question}</div>", unsafe_a
 # ---------------------------------------------------------
 st.markdown("### 📤 Upload jawaban audio Anda (.wav / .mp3)")
 
-audio_file = st.file_uploader("Pilih file audio", type=["wav", "mp3"])
+audio_file = st.file_uploader("Pilih file audio", type=["wav", "mp3", "m4a"])
 
 if audio_file is not None:
-    st.audio(audio_file, format='audio/wav')
-    
-    recognizer = sr.Recognizer()
-    with sr.AudioFile(audio_file) as source:
-        audio_data = recognizer.record(source)
-        with st.spinner("🎧 Sedang mengonversi audio ke teks..."):
-            try:
-                text_result = recognizer.recognize_google(audio_data)
-                st.success("✅ Transkripsi Berhasil!")
-                st.markdown(f"<div class='card'><b>🗣️ Hasil Transkripsi:</b><br>{text_result}</div>", unsafe_allow_html=True)
-            except sr.UnknownValueError:
-                st.error("❌ Audio tidak dapat dikenali. Silakan coba lagi.")
-                text_result = ""
-            except sr.RequestError:
-                st.error("⚠️ Gagal terhubung ke layanan Speech Recognition.")
-                text_result = ""
+    st.audio(audio_file)
+
+    # Simpan file sementara & konversi ke WAV (agar compatible)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_wav:
+        audio = AudioSegment.from_file(audio_file)
+        audio.export(temp_wav.name, format="wav")
+
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(temp_wav.name) as source:
+            audio_data = recognizer.record(source)
+            with st.spinner("🎧 Sedang mengonversi audio ke teks..."):
+                try:
+                    text_result = recognizer.recognize_google(audio_data)
+                    st.success("✅ Transkripsi Berhasil!")
+                    st.markdown(f"<div class='card'><b>🗣️ Hasil Transkripsi:</b><br>{text_result}</div>", unsafe_allow_html=True)
+                except sr.UnknownValueError:
+                    st.error("❌ Audio tidak dapat dikenali. Silakan coba lagi.")
+                    text_result = ""
+                except sr.RequestError:
+                    st.error("⚠️ Gagal terhubung ke layanan Speech Recognition.")
+                    text_result = ""
 
     # ---------------------------------------------------------
     # 💯 Penilaian Jawaban
@@ -92,10 +99,8 @@ if audio_file is not None:
     if text_result:
         st.markdown("### 💯 Hasil Penilaian")
 
-        # Jawaban referensi sederhana (bisa diganti sesuai topik)
         reference_answer = "My favorite hobby is playing football because it keeps me active and helps me relax."
 
-        # Hitung kemiripan teks
         similarity = difflib.SequenceMatcher(None, text_result.lower(), reference_answer.lower()).ratio()
         score = round(similarity * 100, 2)
 
@@ -107,7 +112,6 @@ if audio_file is not None:
         </div>
         """, unsafe_allow_html=True)
 
-        # Evaluasi tingkat kemampuan
         if score >= 85:
             st.success("🌟 Excellent speaking! Pronunciation and content are very clear.")
         elif score >= 70:
@@ -118,7 +122,7 @@ if audio_file is not None:
             st.error("😕 Low accuracy. Please record again with clearer pronunciation.")
 
 # ---------------------------------------------------------
-# 📘 Catatan
+# 📘 Petunjuk
 # ---------------------------------------------------------
 st.markdown("""
 ---

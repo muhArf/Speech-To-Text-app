@@ -34,7 +34,7 @@ st.info(question)
 # 🎥 Langkah 2 — Rekam Video
 # ===========================
 st.subheader("🎬 Record Your Answer")
-video_file = st.camera_input("Tekan tombol di bawah untuk mulai merekam jawaban kamu:")
+video_file = st.file_uploader("🎬 Upload video jawaban kamu (format MP4, MOV, AVI, dll):", type=["mp4", "mov", "avi"])
 
 if video_file is not None:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:

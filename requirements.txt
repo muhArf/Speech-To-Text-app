@@ -4,4 +4,4 @@ torchaudio
 transformers
 whisperx
 sentence-transformers
-ffmpeg-python
+imageio-ffmpeg

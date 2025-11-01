@@ -2,6 +2,5 @@ streamlit
 torch
 whisperx
 sentence-transformers
-moviepy
 ffmpeg-python
 numpy

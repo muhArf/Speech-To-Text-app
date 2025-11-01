@@ -10,8 +10,12 @@ import os
 # ===========================
 st.set_page_config(page_title="AI Interview - Speech to Text", page_icon="🎤")
 
-st.title("🎤 AI Interview Assessment - Speech to Text (WhisperX)")
-st.write("Rekam jawaban wawancara kamu secara langsung, dan sistem akan otomatis menyalin ucapanmu menjadi teks menggunakan **WhisperX AI**.")
+st.title("🎤 AI Interview")
+st.write(
+    "Welcome to your virtual interview session. "
+    "Please answer the following question by recording your video response. "
+    "Our AI system will automatically analyze your speech and generate a text transcription using."
+)
 
 # ===========================
 # 📋 Langkah 1 — Pertanyaan Otomatis

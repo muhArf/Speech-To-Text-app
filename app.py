@@ -1,6 +1,6 @@
 import streamlit as st
 import tempfile
-import whisperx
+import whisper
 import torch
 import os
 import random
@@ -48,7 +48,7 @@ if video_file is not None:
         video_path = temp_video.name
 
     # ===========================
-    # 🔊 Ekstraksi Audio (tanpa ffmpeg binary)
+    # 🔊 Ekstraksi Audio (tanpa ffmpeg system)
     # ===========================
     st.write("🎧 Mengekstrak audio dari video...")
 
@@ -67,44 +67,29 @@ if video_file is not None:
         st.stop()
 
     # ===========================
-    # 🧠 Transkripsi WhisperX
+    # 🧠 Transkripsi Whisper (bukan WhisperX)
     # ===========================
-    st.write("🧠 Menjalankan model WhisperX...")
+    st.write("🧠 Menjalankan model Whisper...")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = whisperx.load_model("small", device)
+    model = whisper.load_model("small", device=device)
     result = model.transcribe(audio_path)
 
-    model_a, metadata = whisperx.load_align_model(language_code=result["language"], device=device)
-    aligned_result = whisperx.align(result["segments"], model_a, metadata, audio_path, device)
-
     st.subheader("📝 Hasil Transkripsi")
-    st.success(aligned_result["text"])
+    st.success(result["text"])
 
     # ===========================
     # 📊 Analisis
     # ===========================
     st.subheader("📊 Analisis Sederhana")
-    word_count = len(aligned_result["text"].split())
+    word_count = len(result["text"].split())
     st.write(f"Jumlah kata: **{word_count}**")
-
-    try:
-        cmd = [
-            ffmpeg_binary.replace("ffmpeg", "ffprobe"),
-            "-v", "error", "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1", audio_path
-        ]
-        duration = float(subprocess.check_output(cmd).decode("utf-8").strip())
-        wpm = (word_count / duration) * 60
-        st.write(f"Kecepatan bicara: **{wpm:.1f} kata/menit**")
-    except Exception:
-        st.warning("⏱️ Durasi tidak dapat dihitung di environment ini.")
 
     st.subheader("💡 Analisis Kesesuaian Jawaban")
     model_st = SentenceTransformer("all-MiniLM-L6-v2")
 
     question_emb = model_st.encode(question, convert_to_tensor=True)
-    answer_emb = model_st.encode(aligned_result["text"], convert_to_tensor=True)
+    answer_emb = model_st.encode(result["text"], convert_to_tensor=True)
     similarity = util.pytorch_cos_sim(question_emb, answer_emb).item() * 100
 
     st.write(f"Tingkat relevansi: **{similarity:.2f}%**")

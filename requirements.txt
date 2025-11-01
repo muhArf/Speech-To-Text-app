@@ -1,6 +1,7 @@
-streamlit
+streamlit==1.37.0
 torch
-torchaudio
-openai-whisper
+whisperx
 sentence-transformers
 moviepy
+ffmpeg-python
+numpy

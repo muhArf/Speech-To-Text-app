@@ -4,9 +4,8 @@ import whisper
 import torch
 import os
 import random
+from moviepy.editor import VideoFileClip
 from sentence_transformers import SentenceTransformer, util
-import imageio_ffmpeg as ffmpeg_lib
-import subprocess
 
 # ===========================
 # 🧠 CONFIG
@@ -48,29 +47,23 @@ if video_file is not None:
         video_path = temp_video.name
 
     # ===========================
-    # 🔊 Ekstraksi Audio (tanpa ffmpeg system)
+    # 🔊 Ekstraksi Audio tanpa ffmpeg
     # ===========================
     st.write("🎧 Mengekstrak audio dari video...")
-
-    audio_path = video_path.replace(".mp4", ".wav")
-    ffmpeg_binary = ffmpeg_lib.get_ffmpeg_exe()
-
     try:
-        command = [
-            ffmpeg_binary, "-i", video_path, "-vn",
-            "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", audio_path, "-y"
-        ]
-        subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        audio_path = video_path.replace(".mp4", ".wav")
+        clip = VideoFileClip(video_path)
+        clip.audio.write_audiofile(audio_path, codec="pcm_s16le")
+        clip.close()
         st.success("✅ Audio berhasil diekstrak.")
     except Exception as e:
         st.error(f"❌ Gagal mengekstrak audio: {e}")
         st.stop()
 
     # ===========================
-    # 🧠 Transkripsi Whisper (bukan WhisperX)
+    # 🧠 Transkripsi Whisper
     # ===========================
     st.write("🧠 Menjalankan model Whisper...")
-
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = whisper.load_model("small", device=device)
     result = model.transcribe(audio_path)

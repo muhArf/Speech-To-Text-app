@@ -2,3 +2,4 @@ streamlit
 torch
 git+https://github.com/m-bain/whisperx.git
 ffmpeg-python
+imageio-ffmpeg

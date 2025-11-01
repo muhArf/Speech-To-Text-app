@@ -1,14 +1,11 @@
 streamlit>=1.20.0
 numpy
-soundfile
 librosa
+soundfile
 matplotlib
-python-dotenv
-# For OpenAI API transcription (if memakai OpenAI Whisper)
 openai
-# Local whisper (optional; heavy, only if you choose Local Whisper)
 whisper
-# Optional for fallback and evaluation
-SpeechRecognition
 jiwer
+SpeechRecognition
 pydub
+streamlit-audiorecorder

@@ -1,19 +1,14 @@
 # app.py
 import streamlit as st
 from pathlib import Path
-import tempfile
-import os
-import io
-import time
-import base64
-
-# Audio processing
+import tempfile, os, time, io, base64
 import numpy as np
-import soundfile as sf
 import librosa
+import soundfile as sf
 import matplotlib.pyplot as plt
+from difflib import SequenceMatcher
 
-# Optional libs (may not be installed in target). We'll import lazily.
+# Optional imports (handled gracefully)
 try:
     import openai
 except Exception:
@@ -24,214 +19,318 @@ try:
 except Exception:
     whisper = None
 
-# Evaluation
 try:
     from jiwer import wer
 except Exception:
     wer = None
 
+# Optional audio recorder component
+# pip package: streamlit-audiorecorder
+try:
+    from audiorecorder import audiorecorder
+    HAS_RECORD = True
+except Exception:
+    HAS_RECORD = False
+
 st.set_page_config(page_title="AI Assessment — Speech-to-Text", page_icon="🧠", layout="wide")
 
-# --- Styling (embedded CSS) ---
+# --- CSS Styling (professional dark glass) ---
 st.markdown(
     """
     <style>
-    /* page */
-    .stApp { background: linear-gradient(180deg,#0f1724 0%, #071032 100%); color: #e6eef8; }
-    .header { color: #ffffff; font-size:32px; font-weight:600; }
-    .subheader { color: #9fb4d9; margin-top: -10px; }
-    .card { background: rgba(255,255,255,0.04); padding: 18px; border-radius: 14px; box-shadow: 0 4px 20px rgba(2,6,23,0.6); }
-    .muted { color: #a9bfd9; }
-    .metric { background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; }
-    .small { font-size:12px; color:#9fb4d9; }
+    :root{
+      --bg:#0b1220; --card:#0f1724; --muted:#9fb4d9; --accent:#6ee7b7;
+    }
+    .stApp { background: linear-gradient(180deg,var(--bg) 0%, #041026 100%); color: #e6eef8; }
+    .topbar { display:flex; gap:12px; align-items:center; }
+    .brand { font-size:22px; font-weight:700; color: #ffffff; }
+    .subtitle { color:var(--muted); margin-top:-6px; font-size:13px; }
+    .card { background: rgba(255,255,255,0.03); padding:16px; border-radius:12px; box-shadow: 0 6px 22px rgba(2,6,23,0.6); }
+    .question { font-size:16px; font-weight:600; color:#ffffff; }
+    .small { font-size:12px; color:var(--muted); }
+    .metric { background: rgba(255,255,255,0.02); padding:10px; border-radius:8px; }
+    .center { display:flex; justify-content:center; align-items:center; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 # --- Header ---
-col1, col2 = st.columns([3,1])
+col1, col2 = st.columns([4,1])
 with col1:
-    st.markdown('<div class="header">AI Assessment — Speech-to-Text</div>', unsafe_allow_html=True)
-    st.markdown('<div class="subheader">Unggah audio, dapatkan transkrip otomatis, evaluasi kualitas transkrip (WER), dan unduh hasilnya.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="topbar"><div class="brand">AI Assessment • Speaking Test</div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">Uji kemampuan berbicara — rekam, transkrip otomatis, dan nilai berdasarkan kunci.</div>', unsafe_allow_html=True)
 with col2:
-    st.image("https://static.streamlit.io/examples/ai.png", width=64)  # decorative (works on Streamlit hosting)
+    st.image("https://static.streamlit.io/images/brand/streamlit-mark-light.png", width=56)
 
-st.write("")  # spacing
-
-# --- Sidebar: settings ---
-with st.sidebar:
-    st.markdown("## Pengaturan Transkripsi")
-    st.info("Pilih metode transkripsi dan bahasa.")
-    method = st.selectbox("Metode", ["Automatic (OpenAI Whisper API — but needs OPENAI_API_KEY)", "Local Whisper (CPU/GPU)", "Streamlit SpeechRecognition (fallback)"])
-    language = st.selectbox("Bahasa target (opsional — biarkan Auto jika unsure)", ["auto", "id", "en", "ms", "other"])
-    show_wave = st.checkbox("Tampilkan waveform audio", value=True)
-    enable_wer = st.checkbox("Tampilkan metrik evaluasi (WER) jika ada teks referensi", value=True)
-    st.markdown("---")
-    st.markdown("### Catatan deploy")
-    st.markdown("- Untuk **OpenAI Whisper API**, tambahkan `OPENAI_API_KEY` pada Secrets/Environment di Streamlit Cloud.")
-    st.markdown("- Untuk **Local Whisper**, instal paket `whisper` & dependencies (butuh lebih besar).")
-    st.markdown("- Jika tidak punya API key, gunakan Local Whisper bila tersedia di environment.")
-
-st.markdown("")  # spacing
-
-# --- Upload area ---
-st.markdown('<div class="card">', unsafe_allow_html=True)
-st.markdown("### 1) Unggah file audio (mp3 / wav / m4a)")
-uploaded = st.file_uploader("Pilih file audio", type=["wav","mp3","m4a","flac","ogg"], accept_multiple_files=False)
-
-st.markdown("### 2) (Opsional) Unggah teks referensi untuk evaluasi (plain .txt)")
-ref_file = st.file_uploader("Teks referensi (optional .txt)", type=["txt"], accept_multiple_files=False)
-
-st.markdown("</div>", unsafe_allow_html=True)
 st.write("")
 
-# Helper: save uploaded to temp file
-def save_tempfile(uploaded_file) -> Path:
-    suffix = Path(uploaded_file.name).suffix
-    tf = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-    tf.write(uploaded_file.getbuffer())
-    tf.flush()
-    tf.close()
-    return Path(tf.name)
+# --- Sidebar: settings and instructions ---
+with st.sidebar:
+    st.markdown("## Pengaturan & Instruksi")
+    st.markdown("1. Pilih soal, tekan **Record** atau unggah file audio jawaban kamu.\n2. Tekan **Transcribe & Score**.\n3. Lihat transkrip, skor kemiripan, dan WER (jika tersedia).")
+    st.markdown("---")
+    st.selectbox("Metode Transkripsi (pilih)", ["Automatic (OpenAI Whisper API)", "Local Whisper (server)", "Fallback (SpeechRecognition Google)"], index=0, key="method")
+    st.selectbox("Bahasa (opsional)", ["auto", "id", "en"], index=0, key="language")
+    st.checkbox("Tampilkan waveform", value=True, key="show_wave")
+    st.checkbox("Tampilkan WER jika tersedia (jiwer)", value=True, key="show_wer")
+    st.markdown("---")
+    st.markdown("**Catatan deploy**:")
+    st.markdown("- Untuk OpenAI Whisper API: tambahkan `OPENAI_API_KEY` di Secrets pada Streamlit Cloud.")
+    st.markdown("- Local Whisper membutuhkan model & resources; tidak direkomendasikan di Streamlit Cloud.")
+    st.markdown("- Jika tidak ada recorder, kamu dapat mengunggah file audio (.wav/.mp3).")
 
-def plot_waveform(filepath, sr=16000):
-    y, sr = librosa.load(filepath, sr=sr, mono=True)
-    duration = len(y) / sr
-    fig, ax = plt.subplots(figsize=(10,2.2))
-    times = np.linspace(0, duration, num=len(y))
-    ax.plot(times, y, linewidth=0.3)
-    ax.set_xlim(0, duration)
-    ax.set_xlabel("Time (s)")
-    ax.set_yticks([])
-    ax.set_title("Waveform")
-    plt.tight_layout()
-    return fig
+# --- Hardcoded questions (5) ---
+QUESTIONS = [
+    {"id":1, "question":"Perkenalkan dirimu secara singkat dalam 30 detik." , "reference":"Nama saya ... saya berasal dari ... dan saya bekerja sebagai ..."},
+    {"id":2, "question":"Jelaskan satu proyek yang paling membanggakan yang pernah kamu kerjakan." , "reference":"Saya mengerjakan proyek ... yang berfokus pada ... hasilnya ..."},
+    {"id":3, "question":"Apa tantangan terbesar yang pernah kamu hadapi dalam tim dan bagaimana kamu mengatasinya?" , "reference":"Tantangan terbesar adalah ... saya mengatasi dengan ..."},
+    {"id":4, "question":"Kenapa kamu tertarik dengan posisi ini?" , "reference":"Saya tertarik karena posisi ini ... dan saya ingin ..."},
+    {"id":5, "question":"Ceritakan tentang satu ide inovatif yang ingin kamu implementasikan di perusahaan." , "reference":"Ide inovatif saya adalah ... yang bertujuan untuk ..."}
+]
 
-def transcribe_openai(audio_path, language="auto"):
-    if openai is None:
-        raise RuntimeError("openai package not installed in environment.")
-    key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY", None) if "OPENAI_API_KEY" in st.secrets else None
-    if not key:
-        raise RuntimeError("OPENAI_API_KEY not found in environment. Set it in Streamlit secrets or env vars.")
-    openai.api_key = key
-    # Use Whisper-1 via OpenAI Python package (transcribe)
-    with open(audio_path, "rb") as f:
-        # model "whisper-1" is used
+# --- UI layout: left = exam, right = results ---
+left, right = st.columns([2,3])
+
+with left:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown("### Soal Speaking Test")
+    q_idx = st.number_input("Pilih nomor soal", min_value=1, max_value=len(QUESTIONS), value=1, step=1)
+    current = QUESTIONS[q_idx-1]
+    st.markdown(f'<div class="question">Soal {current["id"]}: {current["question"]}</div>', unsafe_allow_html=True)
+    st.markdown('<div class="small">Rekam jawabanmu (disarankan 20–90 detik) atau unggah file audio.</div>', unsafe_allow_html=True)
+    st.write("")
+
+    # Recorder (if available)
+    audio_bytes = None
+    if HAS_RECORD:
+        st.markdown("#### Rekam di browser")
+        rec = audiorecorder("Klik untuk memulai rekaman", "Klik untuk berhenti")
+        if len(rec) > 0:
+            # rec is bytes-like WAV in many implementations
+            audio_bytes = rec
+            st.success("Rekaman berhasil direkam.")
+            st.audio(audio_bytes)
+    else:
+        st.info("Recorder browser tidak tersedia di environment ini. Silakan unggah file audio (.wav/.mp3).")
+
+    st.markdown("---")
+    st.markdown("#### Unggah file audio (jika tidak merekam)")
+    uploaded = st.file_uploader("Unggah jawaban audio", type=["wav","mp3","m4a","flac","ogg"], accept_multiple_files=False)
+
+    # If user recorded and also uploaded, prefer recorded
+    chosen_audio = None
+    if audio_bytes:
+        chosen_audio = audio_bytes
+        audio_label = "rekaman_browser.wav"
+    elif uploaded is not None:
+        chosen_audio = uploaded.getvalue()
+        audio_label = uploaded.name
+
+    st.write("")
+    st.markdown("---")
+    if st.button("Transcribe & Score", type="primary"):
+        if chosen_audio is None:
+            st.warning("Belum ada audio. Rekam atau unggah file audio terlebih dahulu.")
+        else:
+            # Save to temp file
+            tf = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+            try:
+                # Attempt to read bytes and convert to wav if needed using soundfile
+                try:
+                    # If it's bytes (from recorder), write directly
+                    if isinstance(chosen_audio, bytes):
+                        tf.write(chosen_audio)
+                        tf.flush()
+                    else:
+                        # uploaded may be BytesIO
+                        tf.write(chosen_audio)
+                        tf.flush()
+                except Exception:
+                    tf.write(chosen_audio)
+                    tf.flush()
+                tf.close()
+                audio_path = tf.name
+
+                # Ensure consistent WAV sampling
+                try:
+                    y, sr = librosa.load(audio_path, sr=16000, mono=True)
+                    sf.write(audio_path, y, 16000, format="WAV")
+                except Exception:
+                    # fallback: leave file as-is
+                    pass
+
+                st.session_state["last_audio_path"] = audio_path
+                st.session_state["last_question"] = current
+                st.session_state["transcribe_time"] = time.time()
+                st.success("Audio siap untuk ditranskrip. Lihat panel sebelah kanan untuk hasil.")
+            except Exception as e:
+                st.error(f"Gagal menyiapkan audio: {e}")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with right:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown("### Hasil Transkripsi & Penilaian")
+    if "last_audio_path" not in st.session_state:
+        st.info("Belum ada transkrip. Lakukan rekaman/unggah + tekan **Transcribe & Score**.")
+    else:
+        audio_path = st.session_state["last_audio_path"]
+        question = st.session_state.get("last_question", QUESTIONS[0])
+
+        # Show player
         try:
-            # This is compatible with openai-python v0.27+ style examples
-            transcript = openai.Audio.transcribe("whisper-1", f, language=None if language=="auto" else language)
-            # transcript is likely a dict-like object with 'text'
-            text = transcript["text"] if isinstance(transcript, dict) and "text" in transcript else str(transcript)
-        except Exception as e:
-            raise RuntimeError(f"OpenAI transcription failed: {e}")
-    return text
+            with open(audio_path, "rb") as f:
+                audio_bytes_player = f.read()
+            st.audio(audio_bytes_player)
+        except Exception:
+            st.warning("Gagal memutar audio (format tidak dikenali).")
 
-def transcribe_local_whisper(audio_path, language="auto"):
-    if whisper is None:
-        raise RuntimeError("whisper package not available in environment.")
-    model_size = "small"  # safe default for Cloud; change to "base" or "tiny" for faster/cheaper
-    model = whisper.load_model(model_size)
-    opts = {}
-    if language != "auto":
-        opts["language"] = language
-        opts["task"] = "transcribe"
-    result = model.transcribe(str(audio_path), **opts)
-    return result.get("text", "")
+        # Waveform
+        if st.session_state.get("show_wave", True):
+            try:
+                y, sr = librosa.load(audio_path, sr=16000, mono=True)
+                duration = len(y) / sr
+                fig, ax = plt.subplots(figsize=(8,2))
+                times = np.linspace(0, duration, num=len(y))
+                ax.plot(times, y, linewidth=0.4)
+                ax.set_xlim(0, duration)
+                ax.set_yticks([])
+                ax.set_xlabel("Seconds")
+                ax.set_title("Waveform")
+                st.pyplot(fig)
+            except Exception as e:
+                st.warning(f"Gagal membuat waveform: {e}")
 
-def transcribe_fallback_speech_recognition(audio_path, language="en-US"):
-    # Basic fallback using SpeechRecognition + Google Web Speech (internet, no API key)
-    try:
-        import speech_recognition as sr
-    except Exception:
-        raise RuntimeError("speech_recognition package not installed.")
-    r = sr.Recognizer()
-    with sr.AudioFile(audio_path) as source:
-        audio = r.record(source)
-    try:
-        text = r.recognize_google(audio, language=language)
-    except Exception as e:
-        raise RuntimeError(f"Google Speech recognition failed: {e}")
-    return text
+        # Transcription (choose method)
+        method = st.sidebar.get("method")
+        language = st.sidebar.get("language", "auto")
+        show_wer_flag = st.sidebar.get("show_wer", True)
 
-# --- Action: transcribe on button press ---
-if uploaded is None:
-    st.info("Unggah file audio untuk memulai transkripsi.")
-else:
-    # Save file
-    audio_path = save_tempfile(uploaded)
-    filesize_mb = os.path.getsize(audio_path) / (1024*1024)
-    st.markdown(f"**Nama file:** {uploaded.name}   •   **Ukuran:** {filesize_mb:.2f} MB")
-    # Playback
-    st.audio(uploaded)
+        def transcribe_with_openai(audio_filepath, language="auto"):
+            if openai is None:
+                raise RuntimeError("openai package belum terpasang di environment.")
+            key = os.getenv("OPENAI_API_KEY") or (st.secrets.get("OPENAI_API_KEY") if "OPENAI_API_KEY" in st.secrets else None)
+            if not key:
+                raise RuntimeError("OPENAI_API_KEY tidak ditemukan. Tambahkan ke Secrets atau environment.")
+            openai.api_key = key
+            with open(audio_filepath, "rb") as af:
+                try:
+                    res = openai.Audio.transcribe("whisper-1", af, language=None if language=="auto" else language)
+                    text = res.get("text") if isinstance(res, dict) else str(res)
+                except Exception as e:
+                    raise RuntimeError(f"Transcribe gagal (OpenAI): {e}")
+            return text
 
-    # Show waveform
-    if show_wave:
-        try:
-            fig = plot_waveform(str(audio_path))
-            st.pyplot(fig)
-        except Exception as e:
-            st.warning(f"Gagal menampilkan waveform: {e}")
+        def transcribe_local_whisper(audio_filepath, language="auto"):
+            if whisper is None:
+                raise RuntimeError("whisper package tidak terpasang.")
+            model = whisper.load_model("small")
+            opts = {}
+            if language != "auto":
+                opts["language"] = language
+            result = model.transcribe(audio_filepath, **opts)
+            return result.get("text","")
 
-    # Transcription button
-    if st.button("Transcribe sekarang", type="primary"):
-        status = st.empty()
-        status.info("Memulai transkripsi...")
-        start = time.time()
+        def transcribe_fallback_google(audio_filepath, language="en-US"):
+            try:
+                import speech_recognition as sr
+            except Exception:
+                raise RuntimeError("speech_recognition tidak terpasang.")
+            r = sr.Recognizer()
+            with sr.AudioFile(audio_filepath) as source:
+                audio_data = r.record(source)
+            text = r.recognize_google(audio_data, language=language)
+            return text
+
+        # Perform transcription now (safe try/except)
+        transcribed_text = ""
+        trans_start = time.time()
         try:
             if method.startswith("Automatic (OpenAI"):
-                status.info("Menggunakan OpenAI Whisper API...")
-                transcript_text = transcribe_openai(str(audio_path), language=language)
+                transcribed_text = transcribe_with_openai(audio_path, language=language)
             elif method.startswith("Local Whisper"):
-                status.info("Menggunakan local Whisper model...")
-                transcript_text = transcribe_local_whisper(str(audio_path), language=language)
+                transcribed_text = transcribe_local_whisper(audio_path, language=language)
             else:
-                status.info("Menggunakan fallback SpeechRecognition...")
-                # language mapping for Google recognizer
-                lang_map = {"auto":"en-US","id":"id-ID","en":"en-US","ms":"ms-MY","other":"en-US"}
-                transcript_text = transcribe_fallback_speech_recognition(str(audio_path), language=lang_map.get(language,"en-US"))
-
-            duration = time.time() - start
-            status.success(f"Transkripsi selesai dalam {duration:.1f} detik.")
-            # Display results
-            st.markdown("### Hasil Transkripsi")
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.code(transcript_text, language="text")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-            # Metrics / info
-            with st.expander("Detail & Metrik"):
-                st.markdown(f"- Model metode: **{method}**")
-                st.markdown(f"- Bahasa (setting): **{language}**")
-                st.markdown(f"- Waktu proses: **{duration:.1f} s**")
-                st.markdown(f"- Ukuran file: **{filesize_mb:.2f} MB**")
-                # Word count
-                wcount = len(transcript_text.split())
-                st.metric("Kata (transkrip)", f"{wcount}")
-
-            # If reference text uploaded and jiwer available
-            if ref_file is not None and enable_wer:
-                try:
-                    ref_text = ref_file.getvalue().decode("utf-8")
-                except Exception:
-                    ref_text = ref_file.getvalue().decode("latin-1", errors="ignore")
-                st.markdown("### Evaluasi kinerja (WER)")
-                if wer is None:
-                    st.warning("Paket 'jiwer' belum terpasang — tidak dapat menghitung WER. Tambahkan 'jiwer' ke requirements.")
-                else:
-                    score = wer(ref_text, transcript_text)
-                    st.markdown('<div class="metric">', unsafe_allow_html=True)
-                    st.markdown(f"**WER (Word Error Rate):** `{score:.3f}` — semakin kecil semakin baik.")
-                    # breakdown: simple substitution/insert/delete estimation not shown here (jiwer has more)
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-            # Download transcript button
-            bcol1, bcol2 = st.columns([1,3])
-            with bcol1:
-                st.download_button("📥 Download .txt", data=transcript_text, file_name=f"{Path(uploaded.name).stem}_transcript.txt", mime="text/plain")
-            with bcol2:
-                st.success("Transkrip siap diunduh.")
-
+                lang_map = {"auto":"en-US","id":"id-ID","en":"en-US"}
+                transcribed_text = transcribe_fallback_google(audio_path, language=lang_map.get(language,"en-US"))
+            trans_time = time.time() - trans_start
         except Exception as e:
-            status.error(f"Gagal melakukan transkripsi: {e}")
-            st.exception(e)
+            st.error(f"Transkripsi gagal: {e}")
+            transcribed_text = ""
+            trans_time = None
+
+        if transcribed_text:
+            st.markdown("#### Transkrip")
+            st.code(transcribed_text, language="text")
+
+            # Scoring: similarity ratio (SequenceMatcher) and WER (if jiwer present)
+            ref_text = question.get("reference","")
+            # Normalize simple
+            def normalize_text(t):
+                return " ".join(t.lower().strip().split())
+
+            norm_ref = normalize_text(ref_text)
+            norm_hyp = normalize_text(transcribed_text)
+
+            # Similarity ratio via difflib (0..1)
+            sim_ratio = SequenceMatcher(None, norm_ref, norm_hyp).ratio()
+            sim_pct = sim_ratio * 100
+
+            # WER if available
+            wer_score = None
+            if wer is not None and show_wer_flag and ref_text.strip() != "":
+                try:
+                    wer_score = wer(ref_text, transcribed_text)
+                except Exception:
+                    wer_score = None
+
+            # Combined score mapping:
+            # similarity has more weight (70%), WER decreases score.
+            base_score = sim_pct  # 0-100
+            if wer_score is not None:
+                # transform WER (0 best) to penalty
+                penalty = min(wer_score, 1.0) * 100  # 0-100
+                final_score = max(0, base_score * 0.7 + (100 - penalty) * 0.3)
+            else:
+                final_score = base_score
+
+            # Display metrics
+            col_a, col_b, col_c = st.columns([1,1,1])
+            col_a.metric("Similarity (%)", f"{sim_pct:.1f}%")
+            col_b.metric("Final Score", f"{final_score:.1f}/100")
+            if wer_score is not None:
+                col_c.metric("WER", f"{wer_score:.3f}")
+            else:
+                col_c.markdown('<div class="small">WER: unavailable</div>', unsafe_allow_html=True)
+
+            # Feedback text
+            st.markdown("#### Feedback otomatis")
+            feedback_lines = []
+            if sim_pct > 85:
+                feedback_lines.append("- Jawaban sangat sesuai dengan kunci. Pelafalan dan isi bagus.")
+            elif sim_pct > 60:
+                feedback_lines.append("- Jawaban cukup mendekati kunci. Perbaiki beberapa kosakata atau detail.")
+            else:
+                feedback_lines.append("- Jawaban berbeda jauh dari kunci. Pastikan menjawab poin utama soal.")
+            if wer_score is not None and wer_score > 0.5:
+                feedback_lines.append("- WER tinggi: audio mungkin berisik atau pelafalan tidak jelas.")
+            st.write("\n".join(feedback_lines))
+
+            # Download transcript
+            st.download_button("📥 Download Transkrip (.txt)", data=transcribed_text, file_name=f"transcript_q{question['id']}.txt", mime="text/plain")
+
+            # Show timing & meta
+            st.markdown("---")
+            st.markdown(f"- Metode transkripsi: **{method}**")
+            if trans_time:
+                st.markdown(f"- Waktu proses: **{trans_time:.1f} s**")
+            st.markdown(f"- Panjang transkrip: **{len(transcribed_text.split())} kata**")
+
+        else:
+            st.warning("Transkripsi kosong atau gagal. Coba lagi dengan audio yang lebih jelas atau unggah file lain.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# --- Footer / Extras ---
+st.write("")
+st.markdown('<div class="small center">Built with ❤️ — Jika mau kustom branding atau scoring lebih canggih (semantic matching), beri tahu aku.</div>', unsafe_allow_html=True)

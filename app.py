@@ -1,16 +1,5 @@
 # =======================================================
-# 🧰 AUTO SETUP - PASTIKAN FFMPEG TERINSTAL
-# =======================================================
-import subprocess
-
-try:
-    subprocess.run(["ffmpeg", "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-except FileNotFoundError:
-    import os
-    os.system("apt-get update && apt-get install -y ffmpeg")
-
-# =======================================================
-# 🎤 AI INTERVIEW APP
+# 🎤 AI INTERVIEW APP 
 # =======================================================
 import streamlit as st
 import tempfile
@@ -19,6 +8,8 @@ import torch
 import os
 import random
 from sentence_transformers import SentenceTransformer, util
+import ffmpeg  # <- gunakan ffmpeg-python (tidak perlu sistem ffmpeg)
+import subprocess
 
 # ===========================
 # 🧠 CONFIGURASI UTAMA
@@ -62,9 +53,10 @@ if video_file is not None:
     # ===========================
     # 🔊 Langkah 3 — Ekstrak Audio dari Video
     # ===========================
-    import ffmpeg
-
     st.write("🎧 Mengekstrak audio dari video...")
+
+    audio_path = video_path.replace(".mp4", ".wav")  # definisikan dulu
+
     try:
         (
             ffmpeg
@@ -109,13 +101,16 @@ if video_file is not None:
     word_count = len(aligned_result["text"].split())
     st.write(f"Jumlah kata yang diucapkan: **{word_count} kata**")
 
-    duration_command = [
-        "ffprobe", "-v", "error", "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1", audio_path
-    ]
-    duration = float(subprocess.check_output(duration_command).decode("utf-8").strip())
-    wpm = (word_count / duration) * 60
-    st.write(f"Kecepatan bicara: **{wpm:.1f} kata per menit**")
+    try:
+        duration_command = [
+            "ffprobe", "-v", "error", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", audio_path
+        ]
+        duration = float(subprocess.check_output(duration_command).decode("utf-8").strip())
+        wpm = (word_count / duration) * 60
+        st.write(f"Kecepatan bicara: **{wpm:.1f} kata per menit**")
+    except Exception:
+        st.warning("⏱️ Durasi audio tidak dapat dihitung di environment ini.")
 
     # ===========================
     # 💬 Analisis Kesesuaian Jawaban dengan Pertanyaan

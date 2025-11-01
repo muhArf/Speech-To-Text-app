@@ -1,11 +1,3 @@
-streamlit>=1.20.0
-numpy
-librosa
-soundfile
-matplotlib
-openai
-whisper
-jiwer
+streamlit
 SpeechRecognition
 pydub
-streamlit-audiorecorder

@@ -1,5 +1,7 @@
 streamlit
 torch
-git+https://github.com/m-bain/whisperx.git
+torchaudio
+whisperx
 ffmpeg-python
-imageio-ffmpeg
+sentence-transformers
+transformers

@@ -1,97 +1,73 @@
 import streamlit as st
-import tempfile
-import whisper
+import whisperx
 import torch
+import tempfile
 import os
-import random
+import subprocess
 from moviepy.editor import VideoFileClip
 from sentence_transformers import SentenceTransformer, util
 
-# ===========================
-# 🧠 CONFIG
-# ===========================
-st.set_page_config(page_title="AI Interview - Speech to Text", page_icon="🎤")
+# ===== Title & Description =====
+st.title("🎤 AI Interview Assessment System")
+st.write("""
+Selamat datang di sistem wawancara otomatis berbasis AI.  
+Unggah video jawaban wawancara kamu, dan sistem akan menganalisis **kecocokan jawaban dengan pertanyaan** menggunakan model AI WhisperX & Sentence Transformer.
+""")
 
-st.title("🎤 Virtual AI Interview")
-st.write(
-    "Selamat datang di sesi wawancara virtual! 🎬 "
-    "Silakan jawab pertanyaan yang diberikan dengan merekam video jawabanmu. "
-    "Sistem AI kami akan menyalin ucapanmu menjadi teks dan "
-    "menganalisis kesesuaian jawaban terhadap pertanyaan."
-)
+# ===== Upload video =====
+uploaded_video = st.file_uploader("🎥 Unggah video jawaban kamu (format: mp4, mov, avi)", type=["mp4", "mov", "avi"])
 
-# ===========================
-# 📋 Langkah 1 — Pertanyaan Otomatis
-# ===========================
-questions = [
-    "Tell me about yourself and your professional background.",
-    "Why do you want to work for our company?",
-    "Describe a challenge you faced and how you overcame it.",
-    "What are your strengths and weaknesses?",
-    "Where do you see yourself in five years?"
-]
+# ===== Input pertanyaan =====
+question = st.text_input("❓ Masukkan pertanyaan wawancara", "Tell me about yourself")
 
-question = random.choice(questions)
-st.subheader("🎯 Interview Question")
-st.info(question)
-
-# ===========================
-# 🎥 Langkah 2 — Upload Video
-# ===========================
-st.subheader("🎬 Upload Your Answer")
-video_file = st.file_uploader("📹 Upload video kamu (MP4/MOV/AVI):", type=["mp4", "mov", "avi"])
-
-if video_file is not None:
+# ===== Proses saat video diunggah =====
+if uploaded_video is not None:
+    st.video(uploaded_video)
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:
-        temp_video.write(video_file.read())
+        temp_video.write(uploaded_video.read())
         video_path = temp_video.name
 
-    # ===========================
-    # 🔊 Ekstraksi Audio tanpa ffmpeg
-    # ===========================
-    st.write("🎧 Mengekstrak audio dari video...")
+    # ===== Ekstrak audio dari video =====
+    st.info("🎧 Mengekstrak audio dari video...")
     try:
-        audio_path = video_path.replace(".mp4", ".wav")
-        clip = VideoFileClip(video_path)
-        clip.audio.write_audiofile(audio_path, codec="pcm_s16le")
-        clip.close()
-        st.success("✅ Audio berhasil diekstrak.")
+        audio_path = tempfile.NamedTemporaryFile(delete=False, suffix=".wav").name
+        video = VideoFileClip(video_path)
+        video.audio.write_audiofile(audio_path, codec="pcm_s16le")
+        st.success("✅ Audio berhasil diekstrak!")
     except Exception as e:
         st.error(f"❌ Gagal mengekstrak audio: {e}")
         st.stop()
 
-    # ===========================
-    # 🧠 Transkripsi Whisper
-    # ===========================
-    st.write("🧠 Menjalankan model Whisper...")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = whisper.load_model("small", device=device)
-    result = model.transcribe(audio_path)
+    # ===== Load WhisperX =====
+    st.info("🧠 Memproses transkripsi dengan WhisperX (ini mungkin memakan waktu)...")
+    try:
+        model = whisperx.load_model("small", device="cpu")
+        result = model.transcribe(audio_path)
+        transcript = result["text"]
+        st.success("✅ Transkripsi selesai!")
+        st.text_area("📜 Hasil Transkripsi:", transcript, height=200)
+    except Exception as e:
+        st.error(f"❌ Gagal melakukan transkripsi: {e}")
+        st.stop()
 
-    st.subheader("📝 Hasil Transkripsi")
-    st.success(result["text"])
+    # ===== Analisis Kecocokan Jawaban =====
+    st.info("🤖 Menganalisis relevansi jawaban dengan pertanyaan...")
+    try:
+        model_st = SentenceTransformer('all-MiniLM-L6-v2')
+        emb_q = model_st.encode(question, convert_to_tensor=True)
+        emb_a = model_st.encode(transcript, convert_to_tensor=True)
+        similarity = util.pytorch_cos_sim(emb_q, emb_a).item()
+        score = round(similarity * 100, 2)
 
-    # ===========================
-    # 📊 Analisis
-    # ===========================
-    st.subheader("📊 Analisis Sederhana")
-    word_count = len(result["text"].split())
-    st.write(f"Jumlah kata: **{word_count}**")
+        if score >= 80:
+            feedback = "Jawaban sangat relevan dengan pertanyaan. 👍"
+        elif score >= 60:
+            feedback = "Jawaban cukup relevan, tetapi bisa lebih fokus. 🧐"
+        else:
+            feedback = "Jawaban kurang relevan dengan pertanyaan. 🚫"
 
-    st.subheader("💡 Analisis Kesesuaian Jawaban")
-    model_st = SentenceTransformer("all-MiniLM-L6-v2")
-
-    question_emb = model_st.encode(question, convert_to_tensor=True)
-    answer_emb = model_st.encode(result["text"], convert_to_tensor=True)
-    similarity = util.pytorch_cos_sim(question_emb, answer_emb).item() * 100
-
-    st.write(f"Tingkat relevansi: **{similarity:.2f}%**")
-
-    if similarity > 75:
-        st.success("✅ Jawaban sangat relevan.")
-    elif similarity > 50:
-        st.warning("⚠️ Cukup relevan, bisa lebih fokus.")
-    else:
-        st.error("❌ Jawaban kurang relevan.")
-
-    st.success("🎉 Analisis selesai!")
+        st.subheader("📊 Hasil Analisis:")
+        st.metric("Tingkat Relevansi", f"{score}%")
+        st.write(feedback)
+    except Exception as e:
+        st.error(f"❌ Gagal menganalisis jawaban: {e}")

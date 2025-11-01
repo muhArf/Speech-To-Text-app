@@ -3,11 +3,13 @@ import speech_recognition as sr
 import difflib
 import random
 import tempfile
+from pydub import AudioSegment
+import os
 
 # ---------------------------------------------------------
-# 🎓 Konfigurasi Tampilan
+# 🎨 Konfigurasi Tampilan
 # ---------------------------------------------------------
-st.set_page_config(page_title="AI Speech-to-Text Assessment", page_icon="🎤", layout="centered")
+st.set_page_config(page_title="AI Job Interview Assessment", page_icon="🎤", layout="centered")
 
 st.markdown("""
     <style>
@@ -21,6 +23,7 @@ st.markdown("""
         font-size: 2em;
         font-weight: 600;
         color: #2563eb;
+        margin-bottom: 0.2em;
     }
     .subtitle {
         text-align: center;
@@ -38,100 +41,109 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<div class='title'>🎤 AI Speech-to-Text Assessment</div>", unsafe_allow_html=True)
-st.markdown("<div class='subtitle'>Uji kemampuan speaking Anda menggunakan AI Speech Recognition</div>", unsafe_allow_html=True)
+st.markdown("<div class='title'>🤖 AI Job Interview Assessment</div>", unsafe_allow_html=True)
+st.markdown("<div class='subtitle'>Latih kemampuan speaking Anda dengan simulasi wawancara kerja berbasis AI</div>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 🧠 Soal Speaking (Random)
+# 🧠 Soal Interview (Random)
 # ---------------------------------------------------------
 questions = [
-    "Describe your favorite holiday destination and why you like it.",
-    "Tell me about your favorite hobby and why you enjoy it.",
-    "What is your opinion about online learning?",
-    "Describe a memorable event in your life.",
-    "If you could change one thing about the world, what would it be?",
-    "Who is someone that inspires you and why?",
-    "What are your goals for the next five years?",
-    "Describe your daily routine on weekends.",
-    "What kind of movies do you like to watch and why?",
-    "How do you usually spend your free time?"
+    "Can you tell me about yourself?",
+    "Why do you want to work at our company?",
+    "What are your greatest strengths?",
+    "What are your weaknesses and how do you improve them?",
+    "Describe a time when you faced a challenge at work and how you handled it.",
+    "Where do you see yourself in five years?",
+    "Can you describe your ideal work environment?",
+    "Tell me about a successful project you worked on.",
+    "How do you handle stress or pressure?",
+    "Why should we hire you?",
+    "Describe a situation where you worked in a team successfully.",
+    "What motivates you to do your best work?",
+    "Tell me about a mistake you made and what you learned from it.",
+    "What do you know about our company?",
+    "What are your salary expectations?"
 ]
 
-# Pilih satu soal acak
 question = random.choice(questions)
-
-st.markdown(f"<div class='card'><b>📝 Soal:</b><br>{question}</div>", unsafe_allow_html=True)
+st.markdown(f"<div class='card'><b>💼 Interview Question:</b><br>{question}</div>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
 # 🎧 Upload Audio
 # ---------------------------------------------------------
-st.markdown("### 📤 Upload jawaban audio Anda (format **.wav** saja)")
+st.markdown("### 🎙️ Upload your recorded answer (any audio format)")
 
-audio_file = st.file_uploader("Pilih file audio", type=["wav"])
+audio_file = st.file_uploader("Upload your answer", type=["wav", "mp3", "m4a", "ogg", "flac", "aac"])
 
 if audio_file is not None:
     st.audio(audio_file)
 
     recognizer = sr.Recognizer()
+    text_result = ""
 
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_wav:
-            temp_wav.write(audio_file.read())
-            temp_wav.flush()
+        # Simpan file sementara dengan format aslinya
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.name)[1]) as temp_input:
+            temp_input.write(audio_file.read())
+            temp_input.flush()
 
-            with sr.AudioFile(temp_wav.name) as source:
-                audio_data = recognizer.record(source)
-                with st.spinner("🎧 Sedang mengonversi audio ke teks..."):
-                    text_result = recognizer.recognize_google(audio_data)
-                    st.success("✅ Transkripsi Berhasil!")
-                    st.markdown(f"<div class='card'><b>🗣️ Hasil Transkripsi:</b><br>{text_result}</div>", unsafe_allow_html=True)
+            # Konversi ke WAV sementara
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_wav:
+                sound = AudioSegment.from_file(temp_input.name)
+                sound.export(temp_wav.name, format="wav")
+
+                with sr.AudioFile(temp_wav.name) as source:
+                    audio_data = recognizer.record(source)
+                    with st.spinner("🎧 Converting your speech to text..."):
+                        text_result = recognizer.recognize_google(audio_data)
+                        st.success("✅ Transcription Complete!")
+                        st.markdown(f"<div class='card'><b>🗣️ Your Answer:</b><br>{text_result}</div>", unsafe_allow_html=True)
 
     except sr.UnknownValueError:
-        st.error("❌ Audio tidak dapat dikenali. Silakan coba lagi.")
-        text_result = ""
+        st.error("❌ Sorry, we couldn't understand your audio. Please try again.")
     except sr.RequestError:
-        st.error("⚠️ Gagal terhubung ke layanan Speech Recognition.")
-        text_result = ""
+        st.error("⚠️ Speech Recognition service unavailable.")
     except Exception as e:
-        st.error("⚠️ Pastikan file audio dalam format .wav (PCM).")
+        st.error(f"⚠️ Error processing audio: {e}")
 
     # ---------------------------------------------------------
     # 💯 Penilaian Jawaban
     # ---------------------------------------------------------
-    if 'text_result' in locals() and text_result:
-        st.markdown("### 💯 Hasil Penilaian")
+    if text_result:
+        st.markdown("### 💯 AI Evaluation Result")
 
-        reference_answer = "My favorite hobby is playing football because it keeps me active and helps me relax."
+        reference_answer = "I am a motivated and hardworking person who enjoys learning new skills and contributing to team success."
 
         similarity = difflib.SequenceMatcher(None, text_result.lower(), reference_answer.lower()).ratio()
         score = round(similarity * 100, 2)
 
         st.markdown(f"""
         <div class='card'>
-            <b>🎯 Skor Kecocokan:</b> {score} / 100 <br><br>
-            <b>💬 Jawaban Referensi:</b><br>
+            <b>🎯 Similarity Score:</b> {score}/100 <br><br>
+            <b>💬 Sample Strong Answer:</b><br>
             {reference_answer}
         </div>
         """, unsafe_allow_html=True)
 
         if score >= 85:
-            st.success("🌟 Excellent speaking! Pronunciation and content are very clear.")
+            st.success("🌟 Excellent! You spoke clearly and answered with strong confidence.")
         elif score >= 70:
-            st.info("👍 Good! You can improve by speaking more clearly.")
+            st.info("👍 Good job! Try to use more details and clear pronunciation.")
         elif score >= 50:
-            st.warning("🗣️ Fair. Try to answer with more complete sentences.")
+            st.warning("🗣️ Fair attempt. Focus on structure and clarity in your response.")
         else:
-            st.error("😕 Low accuracy. Please record again with clearer pronunciation.")
+            st.error("😕 Try again with clearer pronunciation and complete sentences.")
 
 # ---------------------------------------------------------
-# 📘 Petunjuk
+# 📘 Instructions
 # ---------------------------------------------------------
 st.markdown("""
 ---
-**Petunjuk:**
-1️⃣ Baca soal di atas dengan suara jelas.  
-2️⃣ Rekam jawaban Anda dan upload file audio **berformat .WAV (PCM 16-bit)**.  
-3️⃣ Sistem akan otomatis menilai hasil transkripsi Anda.  
+**📋 Instructions:**
+1️⃣ Read the interview question carefully.  
+2️⃣ Record your answer using any format (.mp3, .m4a, .wav, .ogg, etc).  
+3️⃣ Upload your audio file above.  
+4️⃣ The AI will transcribe and score your speaking performance.  
 
-*Dibangun dengan Python, Streamlit, dan SpeechRecognition.*
+*Powered by Streamlit, SpeechRecognition, pydub, and Google Speech API.*
 """)

@@ -1,7 +1,7 @@
 streamlit
 torch
 torchaudio
-whisperx
-ffmpeg-python
-sentence-transformers
 transformers
+whisperx
+sentence-transformers
+ffmpeg-python

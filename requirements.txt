@@ -3,4 +3,4 @@ torch
 torchaudio
 openai-whisper
 sentence-transformers
-imageio-ffmpeg
+moviepy

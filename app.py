@@ -1,164 +1,189 @@
 import streamlit as st
-import speech_recognition as sr
-import difflib
-import random
+import whisper
+import subprocess
+import json
 import tempfile
-from pydub import AudioSegment
 import os
+import numpy as np
 
-# ---------------------------------------------------------
-# 🎨 Konfigurasi Tampilan
-# ---------------------------------------------------------
-st.set_page_config(page_title="AI Job Interview Assessment", page_icon="🎤", layout="centered")
+# ============================================================
+#   CONFIGURASI APLIKASI STREAMLIT
+# ============================================================
+st.title("Aplikasi Transkripsi Interview – Whisper + Streamlit")
+st.write("Upload **5 video sesuai urutan pertanyaan** kemudian proses transkripsi.")
 
-st.markdown("""
-    <style>
-    .main {
-        background-color: #f9fafb;
-        font-family: 'Poppins', sans-serif;
-        color: #222;
-    }
-    .title {
-        text-align: center;
-        font-size: 2em;
-        font-weight: 600;
-        color: #2563eb;
-        margin-bottom: 0.2em;
-    }
-    .subtitle {
-        text-align: center;
-        font-size: 1.1em;
-        color: #555;
-        margin-bottom: 1.5em;
-    }
-    .card {
-        background-color: white;
-        padding: 1.3em 1.6em;
-        border-radius: 1em;
-        box-shadow: 0px 2px 6px rgba(0,0,0,0.1);
-        margin-top: 1em;
-    }
-    </style>
-""", unsafe_allow_html=True)
+# Membuat folder kerja
+os.makedirs("videos", exist_ok=True)
+os.makedirs("audios", exist_ok=True)
+os.makedirs("transcripts", exist_ok=True)
+os.makedirs("dataset", exist_ok=True)
 
-st.markdown("<div class='title'>🤖 AI Job Interview Assessment</div>", unsafe_allow_html=True)
-st.markdown("<div class='subtitle'>Latih kemampuan speaking Anda dengan simulasi wawancara kerja berbasis AI</div>", unsafe_allow_html=True)
+# ============================================================
+#   UPLOAD VIDEO (5 FILE)
+# ============================================================
+uploaded_files = st.file_uploader(
+    "Upload 5 video interview (q1–q5)", 
+    type=["mp4", "mov", "mkv"], 
+    accept_multiple_files=True
+)
 
-# ---------------------------------------------------------
-# 🧠 Soal Interview dan Jawaban Ideal
-# ---------------------------------------------------------
-questions_and_answers = {
-    "Can you tell me about yourself?":
-        "I am a dedicated and motivated professional with a passion for learning and growing in my career. I enjoy working in team environments and continuously improving my skills.",
-    "Why do you want to work at our company?":
-        "I admire your company’s commitment to innovation and employee development. I believe my skills align with your values and I want to contribute to your ongoing success.",
-    "What are your greatest strengths?":
-        "My greatest strengths are adaptability, teamwork, and problem-solving. I always stay calm under pressure and look for effective solutions.",
-    "What are your weaknesses and how do you improve them?":
-        "One of my weaknesses is that I tend to be a perfectionist, but I’ve learned to balance quality with efficiency by setting realistic deadlines.",
-    "Describe a time when you faced a challenge at work and how you handled it.":
-        "Once, I faced a tight project deadline. I organized the team, delegated tasks clearly, and we successfully completed the project ahead of time.",
-    "Where do you see yourself in five years?":
-        "In five years, I see myself growing into a leadership role where I can guide and support others while continuing to develop my professional skills.",
-    "Can you describe your ideal work environment?":
-        "My ideal work environment is one that encourages collaboration, open communication, and continuous learning.",
-    "Tell me about a successful project you worked on.":
-        "In my last job, I led a small team to improve a workflow system that reduced processing time by 20%. It was rewarding to see our teamwork pay off.",
-    "How do you handle stress or pressure?":
-        "I stay organized, prioritize tasks, and take short breaks when needed. I view pressure as an opportunity to perform better.",
-    "Why should we hire you?":
-        "You should hire me because I bring a mix of relevant skills, passion, and a proactive attitude that will add value to your team.",
-    "Describe a situation where you worked in a team successfully.":
-        "In a previous project, I worked with a diverse team where I learned to communicate effectively and ensure everyone’s strengths were utilized for success.",
-    "What motivates you to do your best work?":
-        "I am motivated by challenges and the opportunity to make a meaningful impact through my work.",
-    "Tell me about a mistake you made and what you learned from it.":
-        "I once miscommunicated a deadline with a colleague, but I learned to confirm expectations early to prevent similar issues in the future.",
-    "What do you know about our company?":
-        "Your company is known for its innovative approach and strong focus on customer satisfaction, which aligns with my professional goals.",
-    "What are your salary expectations?":
-        "I am open to discussing a salary that reflects the role’s responsibilities and aligns with industry standards."
+if uploaded_files:
+    st.success(f"{len(uploaded_files)} file berhasil diupload.")
+else:
+    st.stop()
+
+# Pastikan 5 file
+if len(uploaded_files) != 5:
+    st.error("HARUS upload tepat **5 file video**!")
+    st.stop()
+
+# ============================================================
+#   SIMPAN VIDEO SECARA LOKAL
+# ============================================================
+video_paths = []
+for i, file in enumerate(uploaded_files, start=1):
+    video_path = f"videos/q{i}.mp4"
+    with open(video_path, "wb") as f:
+        f.write(file.read())
+    video_paths.append(video_path)
+
+st.info("Semua video tersimpan.")
+
+# ============================================================
+#   FUNGSI KONVERSI VIDEO → AUDIO
+# ============================================================
+def video_to_audio(video_path, audio_path):
+    cmd = [
+        "ffmpeg", "-i", video_path, "-vn",
+        "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
+        audio_path, "-y"
+    ]
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+
+# ============================================================
+#   KONVERSI SEMUA VIDEO KE AUDIO
+# ============================================================
+st.subheader("Konversi Video → Audio")
+audio_paths = []
+
+for i in range(1, 6):
+    video_path = f"videos/q{i}.mp4"
+    audio_path = f"audios/q{i}.wav"
+    video_to_audio(video_path, audio_path)
+    audio_paths.append(audio_path)
+    st.write(f"Converted q{i}.mp4 → q{i}.wav")
+
+# ============================================================
+#   LOAD MODEL WHISPER
+# ============================================================
+st.subheader("Load Model Whisper")
+model = whisper.load_model("medium")
+st.success("Model berhasil dimuat!")
+
+# ============================================================
+#   TRANSKRIP AUDIO → TEKS
+# ============================================================
+st.subheader("Transkripsi Audio")
+transcripts = {}
+
+for i in range(1, 6):
+    audio = f"audios/q{i}.wav"
+    st.write(f"Mentranskrip q{i}.wav ...")
+
+    result = model.transcribe(audio, fp16=False)
+    text = result["text"]
+
+    transcripts[i] = text
+
+    with open(f"transcripts/q{i}.txt", "w") as f:
+        f.write(text)
+
+st.success("Semua audio selesai ditranskrip.")
+
+# ============================================================
+#   DATA PERTANYAAN
+# ============================================================
+QUESTIONS = {
+    1: "Can you share any specific challenges you faced while working on certification and how you overcame them?",
+    2: "Can you describe your experience with transfer learning in TensorFlow? How did it benefit your projects?",
+    3: "Describe a complex TensorFlow model you have built and the steps you took to ensure its accuracy and efficiency.",
+    4: "Explain how to implement dropout in a TensorFlow model and the effect it has on training.",
+    5: "Describe the process of building a convolutional neural network (CNN) using TensorFlow for image classification."
 }
 
-question = random.choice(list(questions_and_answers.keys()))
-sample_answer = questions_and_answers[question]
+# ============================================================
+#   BENTUKKAN RAW DATASET
+# ============================================================
+dataset_raw = []
 
-st.markdown(f"<div class='card'><b>💼 Interview Question:</b><br>{question}</div>", unsafe_allow_html=True)
+for i in range(1, 6):
+    dataset_raw.append({
+        "question_id": i,
+        "question_text": QUESTIONS[i],
+        "transcript": transcripts[i],
+        "score": None,
+        "reason": None
+    })
 
-# ---------------------------------------------------------
-# 🎧 Upload Audio
-# ---------------------------------------------------------
-st.markdown("### 🎙️ Upload your recorded answer (any audio format)")
+with open("dataset/dataset_raw.json", "w") as f:
+    json.dump(dataset_raw, f, indent=2)
 
-audio_file = st.file_uploader("Upload your answer", type=["wav", "mp3", "m4a", "ogg", "flac", "aac"])
+st.success("dataset_raw.json berhasil dibuat.")
 
-if audio_file is not None:
-    st.audio(audio_file)
-    recognizer = sr.Recognizer()
-    text_result = ""
+# ============================================================
+#   FORM PENILAIAN MANUAL
+# ============================================================
+st.subheader("Penilaian Jawaban Kandidat")
 
-    try:
-        # Simpan file sementara (format asli)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.name)[1]) as temp_input:
-            temp_input.write(audio_file.read())
-            temp_input.flush()
+labeled = []
 
-            # Konversi ke WAV
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_wav:
-                sound = AudioSegment.from_file(temp_input.name)
-                sound.export(temp_wav.name, format="wav")
+for item in dataset_raw:
+    st.write("### Pertanyaan", item["question_id"])
+    st.write(item["question_text"])
+    st.write("**Transcript:**")
+    st.info(item["transcript"])
 
-                # Transkripsi audio
-                with sr.AudioFile(temp_wav.name) as source:
-                    audio_data = recognizer.record(source)
-                    with st.spinner("🎧 Converting your speech to text..."):
-                        text_result = recognizer.recognize_google(audio_data)
-                        st.success("✅ Transcription Complete!")
-                        st.markdown(f"<div class='card'><b>🗣️ Your Answer:</b><br>{text_result}</div>", unsafe_allow_html=True)
+    score = st.slider(f"Skor untuk Q{item['question_id']} (0–4)", 0, 4)
+    reason = st.text_input(f"Alasan skoring Q{item['question_id']}")
 
-    except sr.UnknownValueError:
-        st.error("❌ Sorry, we couldn't understand your audio. Please try again.")
-    except sr.RequestError:
-        st.error("⚠️ Speech Recognition service unavailable.")
-    except Exception as e:
-        st.error(f"⚠️ Error processing audio: {e}")
+    item["score"] = score
+    item["reason"] = reason
 
-    # ---------------------------------------------------------
-    # 💯 Penilaian Jawaban
-    # ---------------------------------------------------------
-    if text_result:
-        st.markdown("### 💯 AI Evaluation Result")
+    labeled.append(item)
 
-        similarity = difflib.SequenceMatcher(None, text_result.lower(), sample_answer.lower()).ratio()
-        score = round(similarity * 100, 2)
+# ============================================================
+#   GENERATE INTERVIEW SESSION JSON
+# ============================================================
+if st.button("Simpan Hasil"):
+    interview_score = sum(i["score"] for i in labeled)
 
-        st.markdown(f"""
-        <div class='card'>
-            <b>🎯 Similarity Score:</b> {score}/100 <br><br>
-            <b>💬 Sample Strong Answer:</b><br>
-            {sample_answer}
-        </div>
-        """, unsafe_allow_html=True)
+    interview_session = {
+        "candidate_id": 131,
+        "answers": labeled,
+        "interview_score": interview_score,
+        "decision": "PASSED" if interview_score >= 12 else "Need Human",
+        "overall_notes": "Generated automatically from dataset"
+    }
 
-        if score >= 85:
-            st.success("🌟 Excellent! You spoke clearly and answered with strong confidence.")
-        elif score >= 70:
-            st.info("👍 Good job! Try to use more details and clear pronunciation.")
-        elif score >= 50:
-            st.warning("🗣️ Fair attempt. Focus on structure and clarity in your response.")
-        else:
-            st.error("😕 Try again with clearer pronunciation and complete sentences.")
+    with open("dataset/interview_session.json", "w") as f:
+        json.dump(interview_session, f, indent=2)
 
-# ---------------------------------------------------------
-# 📘 Instructions
-# ---------------------------------------------------------
-st.markdown("""
----
-**📋 Instructions:**
-1️⃣ Read the interview question carefully.  
-2️⃣ Record your answer in any format (.mp3, .m4a, .wav, etc).  
-3️⃣ Upload your audio file above.  
-4️⃣ The AI will transcribe and evaluate your speaking performance.  
+    st.success("interview_session.json berhasil dibuat!")
 
-*Powered by Streamlit, SpeechRecognition, pydub, and Google Speech API.*
-""")
+    st.download_button(
+        "Download dataset_raw.json",
+        data=open("dataset/dataset_raw.json", "rb").read(),
+        file_name="dataset_raw.json"
+    )
+
+    st.download_button(
+        "Download dataset_labeled_answers.json",
+        data=json.dumps(labeled, indent=2),
+        file_name="dataset_labeled_answers.json"
+    )
+
+    st.download_button(
+        "Download interview_session.json",
+        data=json.dumps(interview_session, indent=2),
+        file_name="interview_session.json"
+    )

@@ -1,6 +1,9 @@
-openai-whisper
+ffmpeg
 ffmpeg-python
+openai-whisper
+torch
+torchaudio
 pydub
-sentence-transformers
 librosa
 numpy
+sentence-transformers

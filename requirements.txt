@@ -1,3 +1,6 @@
-streamlit
-SpeechRecognition
+openai-whisper
+ffmpeg-python
 pydub
+sentence-transformers
+librosa
+numpy
